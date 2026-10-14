@@ -121,8 +121,41 @@ cc_flags = []
 
 # Get any platform-specific settings
 plat = platform.system()
+
+if plat == "OS/390":
+    # Experimental z/OS configuration.
+    # Derive the same candidate prefix used in our successful C tests.
+    prefix = None
+
+    for entry in os.environ.get("STEPLIB", "").split(":"):
+        name = entry.strip().strip("'").upper()
+
+        if ".SCSQ" in name:
+            prefix = name.split(".SCSQ", 1)[0]
+            break
+
+    if prefix is None:
+        raise RuntimeError("No MQ installation prefix found")
+
+    mq_headers = f"//'{prefix}.SCSQC370'"
+    mq_side_deck = f"//'{prefix}.SCSQDEFS(CSQBMQ2X)'"
+
+    library_dirs = []
+    include_dirs = []
+    libraries = []
+
+    cc_flags.extend([
+        "-W", "c,LP64,DLL",
+        "-I", mq_headers
+    ])
+
+    ld_flags.extend([
+        "-W", "l,DYNAM=DLL,LP64",
+        mq_side_deck
+    ])
+
 # Windows
-if plat == "Windows":
+elif plat == "Windows":
     library_dirs, include_dirs, libraries = get_windows_settings()
 
 # AIX
@@ -164,7 +197,11 @@ for d in include_dirs:
     p = os.path.join(d, "cmqc.h")
     if os.path.isfile(p):
         found_headers = True
-if not found_headers and not os.environ.get('CI', ''):
+if (
+    not found_headers
+    and plat != "OS/390"
+    and not os.environ.get("CI", "")
+):
     msg = "Cannot find MQ C header files.\n"
     msg += "Ensure you have already installed the MQ Client and SDK.\n"
     msg += "Use the MQ_FILE_PATH environment variable to identify a non-default location."
