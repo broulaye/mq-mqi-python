@@ -179,7 +179,14 @@ static common_mutex_t process_mutex; /* A general purpose mutex for any other gl
 
 #define PY_IBMMQ_CD_SIZEOF MQCD_CURRENT_LENGTH
 #define PY_IBMMQ_OD_SIZEOF MQOD_CURRENT_LENGTH
+#ifdef IBMMQ_PLATFORM_ZOS
+/* Python MD.pack() uses the 364-byte Version 2 descriptor.
+ * On z/OS, sizeof(MQMD) may describe the 324-byte V1 layout.
+ */
+#define PY_IBMMQ_MD_SIZEOF MQMD_LENGTH_2
+#else
 #define PY_IBMMQ_MD_SIZEOF sizeof(MQMD)
+#endif
 #define PY_IBMMQ_PMO_SIZEOF MQPMO_CURRENT_LENGTH
 #define PY_IBMMQ_GMO_SIZEOF sizeof(MQGMO)
 #define PY_IBMMQ_SCO_SIZEOF sizeof(MQSCO)
