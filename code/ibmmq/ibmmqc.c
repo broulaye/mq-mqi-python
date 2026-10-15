@@ -1583,7 +1583,25 @@ static PyObject * ibmmqc_MQCB(PyObject *self, PyObject *args) {
     return NULL;
   }
 
+#ifdef IBMMQ_PLATFORM_ZOS
+  /*
+   * Preserve the OS-linked function pointer representation
+   * when storing it in MQCBD.CallbackFunction (MQPTR).
+   */
+  {
+    void (*callback)(MQHCONN, MQMD *, MQGMO *,
+                     unsigned char *, MQCBC *) = cbFunc_C;
+
+    _Static_assert(
+        sizeof(callback) == sizeof(cbd->CallbackFunction),
+        "Unexpected MQ callback pointer size"
+    );
+
+    memcpy(&cbd->CallbackFunction, &callback, sizeof(callback));
+  }
+#else
   cbd->CallbackFunction = cbFunc_C;
+#endif
 
   // Stash the hObj in the CBD so it is always available on the
   // callback - pre-943 client libraries had a bug that didn't
