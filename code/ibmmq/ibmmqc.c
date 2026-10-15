@@ -1462,6 +1462,10 @@ static PyObject *cbFunc_Py = NULL;
 static common_mutex_t cbFunc_mutex;
 
 #ifdef IBMMQ_PLATFORM_ZOS
+typedef void ibmmq_os_callback_t(
+    MQHCONN, MQMD *, MQGMO *, unsigned char *, MQCBC *
+);
+#pragma linkage(ibmmq_os_callback_t, OS)
 #pragma linkage(cbFunc_C, OS)
 #endif
 
@@ -1589,8 +1593,7 @@ static PyObject * ibmmqc_MQCB(PyObject *self, PyObject *args) {
    * when storing it in MQCBD.CallbackFunction (MQPTR).
    */
   {
-    void (*callback)(MQHCONN, MQMD *, MQGMO *,
-                     unsigned char *, MQCBC *) = cbFunc_C;
+    ibmmq_os_callback_t *callback = cbFunc_C;
 
     _Static_assert(
         sizeof(callback) == sizeof(cbd->CallbackFunction),
