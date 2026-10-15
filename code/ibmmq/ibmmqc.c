@@ -560,7 +560,13 @@ static PyObject * ibmmqc_MQCONN(PyObject *self, PyObject *args) {
     char *nameData;
     Py_ssize_t nameLength;
 
-    MQCHAR48 qmgrName = {0};
+    MQCHAR48 qmgrName;
+
+#ifdef IBMMQ_PLATFORM_ZOS
+    memset(qmgrName, 0x40, sizeof(qmgrName));
+#else
+    memset(qmgrName, 0, sizeof(qmgrName));
+#endif
     MQHCONN hConn = MQHC_UNUSABLE_HCONN;
     MQLONG compCode, reasonCode;
 
@@ -572,9 +578,15 @@ static PyObject * ibmmqc_MQCONN(PyObject *self, PyObject *args) {
         encodedName = nameObj;
         Py_INCREF(encodedName);
     } else if (PyUnicode_Check(nameObj)) {
-        encodedName = PyUnicode_AsEncodedString(
-            nameObj, "utf-8", "strict"
-        );
+        #ifdef IBMMQ_PLATFORM_ZOS
+    encodedName = PyUnicode_AsEncodedString(
+        nameObj, "cp037", "strict"
+    );
+#else
+    encodedName = PyUnicode_AsEncodedString(
+        nameObj, "utf-8", "strict"
+    );
+#endif
     } else {
         PyErr_SetString(
             PyExc_TypeError,
@@ -605,28 +617,32 @@ static PyObject * ibmmqc_MQCONN(PyObject *self, PyObject *args) {
 
 #ifdef IBMMQ_PLATFORM_ZOS
     /*
-     * z/OS queue manager names contain at most four characters
-     * and consist of uppercase A-Z and digits 0-9.
-     *
-     * An empty name requests the configured default queue manager.
+     * CP037 character validation for the current experimental
+     * z/OS queue-manager naming policy.
      */
     if (nameLength > 4) {
         Py_DECREF(encodedName);
         PyErr_SetString(
             PyExc_ValueError,
-            "z/OS queue manager names cannot exceed 4 characters"
+            "z/OS queue manager name exceeds 4 characters"
         );
         return NULL;
     }
 
     for (Py_ssize_t i = 0; i < nameLength; i++) {
         unsigned char ch = (unsigned char)nameData[i];
-        if (!((ch >= 'A' && ch <= 'Z') ||
-              (ch >= '0' && ch <= '9'))) {
+
+        int valid =
+            (ch >= 0xC1 && ch <= 0xC9) || /* A-I */
+            (ch >= 0xD1 && ch <= 0xD9) || /* J-R */
+            (ch >= 0xE2 && ch <= 0xE9) || /* S-Z */
+            (ch >= 0xF0 && ch <= 0xF9);   /* 0-9 */
+
+        if (!valid) {
             Py_DECREF(encodedName);
             PyErr_SetString(
                 PyExc_ValueError,
-                "z/OS queue manager names must use A-Z or 0-9"
+                "Invalid z/OS queue manager name"
             );
             return NULL;
         }
