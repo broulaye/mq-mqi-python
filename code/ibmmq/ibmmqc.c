@@ -1031,6 +1031,7 @@ static PyObject *ibmmqc_MQGET(PyObject *self, PyObject *args) {
 }
 
 
+#ifndef IBMMQ_PLATFORM_ZOS
 static char ibmmqc_MQBEGIN__doc__[] =
 "MQBEGIN(handle)  \
 \
@@ -1056,6 +1057,8 @@ static PyObject * ibmmqc_MQBEGIN(PyObject *self, PyObject *args) {
   return MQRETURN(compCode, reasonCode);
 }
 
+
+#endif /* IBMMQ_PLATFORM_ZOS */
 
 static char ibmmqc_MQCMIT__doc__[] =
 "MQCMIT(handle) \
@@ -1406,6 +1409,7 @@ static PyObject * ibmmqc_MQSTAT(PyObject *self, PyObject *args) {
 /* That Python function will then reformat the C parameters into Python classes and     */
 /* finally invoke the real user-designated callback. And then it all unwinds.           */
 /****************************************************************************************/
+#ifndef IBMMQ_PLATFORM_ZOS
 static PyObject *cbFunc_Py = NULL;
 static common_mutex_t cbFunc_mutex;
 
@@ -1544,6 +1548,9 @@ static PyObject * ibmmqc_MQCB(PyObject *self, PyObject *args) {
 
 }
 
+#endif /* IBMMQ_PLATFORM_ZOS */
+
+#ifndef IBMMQ_PLATFORM_ZOS
 static char ibmmqc_MQCTL__doc__[] =
 "MQCTL(connectionHandle, operation, controlOptions) \
  \
@@ -1580,6 +1587,8 @@ static PyObject * ibmmqc_MQCTL(PyObject *self, PyObject *args) {
 /****************************************************************************************/
 /* MQI calls that deal with message properties                                          */
 /****************************************************************************************/
+#endif /* IBMMQ_PLATFORM_ZOS */
+
 static char ibmmqc_MQCRTMH__doc__[] =
 "MQCRTMH(conn_handle, cmho) \
  \
@@ -2076,7 +2085,9 @@ static struct PyMethodDef ibmmqc_methods[] = {
   {"MQPUT1", (PyCFunction)ibmmqc_MQPUT1, METH_VARARGS, ibmmqc_MQPUT1__doc__},
   {"MQGET", (PyCFunction)ibmmqc_MQGET, METH_VARARGS, ibmmqc_MQGET__doc__},
 
+#ifndef IBMMQ_PLATFORM_ZOS
   {"MQBEGIN", (PyCFunction)ibmmqc_MQBEGIN, METH_VARARGS, ibmmqc_MQBEGIN__doc__},
+#endif /* IBMMQ_PLATFORM_ZOS */
   {"MQCMIT", (PyCFunction)ibmmqc_MQCMIT, METH_VARARGS, ibmmqc_MQCMIT__doc__},
   {"MQBACK", (PyCFunction)ibmmqc_MQBACK, METH_VARARGS, ibmmqc_MQBACK__doc__},
 
@@ -2087,9 +2098,15 @@ static struct PyMethodDef ibmmqc_methods[] = {
   {"MQSUBRQ", (PyCFunction)ibmmqc_MQSUBRQ, METH_VARARGS, ibmmqc_MQSUBRQ__doc__},
   {"MQSTAT", (PyCFunction)ibmmqc_MQSTAT, METH_VARARGS, ibmmqc_MQSTAT__doc__},
 
+#ifndef IBMMQ_PLATFORM_ZOS
   {"MQCB", (PyCFunction)ibmmqc_MQCB, METH_VARARGS, ibmmqc_MQCB__doc__},
+#endif /* IBMMQ_PLATFORM_ZOS */
+#ifndef IBMMQ_PLATFORM_ZOS
   {"MQCTL", (PyCFunction)ibmmqc_MQCTL, METH_VARARGS, ibmmqc_MQCTL__doc__},
+#endif /* IBMMQ_PLATFORM_ZOS */
+#ifndef IBMMQ_PLATFORM_ZOS
   {"MQCBINIT", (PyCFunction)ibmmqc_MQCBINIT, METH_VARARGS, ibmmqc_MQCBINIT__doc__},
+#endif /* IBMMQ_PLATFORM_ZOS */
 
   {"MQCRTMH", (PyCFunction)ibmmqc_MQCRTMH, METH_VARARGS, ibmmqc_MQCRTMH__doc__},
   {"MQDLTMH", (PyCFunction)ibmmqc_MQDLTMH, METH_VARARGS, ibmmqc_MQDLTMH__doc__},
@@ -2117,7 +2134,9 @@ static struct PyModuleDef ibmmqc_module = {
 INIT_ONCE critSecInitOnce = INIT_ONCE_STATIC_INIT;
 
 BOOL CALLBACK InitCritSecCallback(PINIT_ONCE InitOnce, PVOID Parameter, PVOID* Context) {
-  InitializeCriticalSection(&cbFunc_mutex);
+  #ifndef IBMMQ_PLATFORM_ZOS
+InitializeCriticalSection(&cbFunc_mutex);
+#endif /* IBMMQ_PLATFORM_ZOS */
   InitializeCriticalSection(&log_mutex);
   InitializeCriticalSection(&process_mutex);
   return TRUE;
@@ -2126,7 +2145,9 @@ BOOL CALLBACK InitCritSecCallback(PINIT_ONCE InitOnce, PVOID Parameter, PVOID* C
 pthread_once_t mutexInitOnce = PTHREAD_ONCE_INIT;
 
 void mutexInit(void) {
-  pthread_mutex_init(&cbFunc_mutex, NULL);
+  #ifndef IBMMQ_PLATFORM_ZOS
+pthread_mutex_init(&cbFunc_mutex, NULL);
+#endif /* IBMMQ_PLATFORM_ZOS */
   pthread_mutex_init(&log_mutex, NULL);
   pthread_mutex_init(&process_mutex, NULL);
 }
@@ -2147,16 +2168,23 @@ static void ibmmqc_atexit(void) {
 #ifdef _WIN32
   DeleteCriticalSection(&log_mutex);
   DeleteCriticalSection(&process_mutex);
-  DeleteCriticalSection(&cbFunc_mutex);
+  #ifndef IBMMQ_PLATFORM_ZOS
+DeleteCriticalSection(&cbFunc_mutex);
+#endif /* IBMMQ_PLATFORM_ZOS */
 #else
   pthread_mutex_destroy(&log_mutex);
   pthread_mutex_destroy(&process_mutex);
-  pthread_mutex_destroy(&cbFunc_mutex);
+  #ifndef IBMMQ_PLATFORM_ZOS
+pthread_mutex_destroy(&cbFunc_mutex);
+#endif /* IBMMQ_PLATFORM_ZOS */
 #endif
 }
 
 /* Initialization function for the module */
 /* Everything else should be 'static'     */
+#ifdef IBMMQ_PLATFORM_ZOS
+#pragma export(PyInit_ibmmqc)
+#endif
 PyMODINIT_FUNC PyInit_ibmmqc(void) {
   int localError = FALSE;
   PyObject *m, *d, *v;

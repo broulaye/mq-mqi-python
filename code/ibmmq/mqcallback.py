@@ -213,4 +213,5 @@ def real_cb(obj, kwargs):
 
 
 # Initialise the C layer with the address of this module's proxy callback function.
-ibmmqc.MQCBINIT(_internal_cb)
+if hasattr(ibmmqc, 'MQCBINIT'):
+    ibmmqc.MQCBINIT(_internal_cb)

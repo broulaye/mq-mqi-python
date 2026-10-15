@@ -123,35 +123,56 @@ cc_flags = []
 plat = platform.system()
 
 if plat == "OS/390":
-    # Experimental z/OS configuration.
-    # Derive the same candidate prefix used in our successful C tests.
-    prefix = None
+    # Experimental z/OS Python MQI port.
+    import sys
+    import sysconfig
+    from pathlib import Path
 
+    prefix = None
     for entry in os.environ.get("STEPLIB", "").split(":"):
         name = entry.strip().strip("'").upper()
-
         if ".SCSQ" in name:
             prefix = name.split(".SCSQ", 1)[0]
             break
 
-    if prefix is None:
-        raise RuntimeError("No MQ installation prefix found")
+    if not prefix:
+        raise RuntimeError("MQ installation not found in STEPLIB")
 
     mq_headers = f"//'{prefix}.SCSQC370'"
     mq_side_deck = f"//'{prefix}.SCSQDEFS(CSQBMQ2X)'"
 
+    version = f"{sys.version_info.major}.{sys.version_info.minor}"
+    python_deck_name = f"libpython{version}.x"
+
+    candidates = [
+        Path(sys.base_prefix) / "lib" / python_deck_name,
+        Path(sysconfig.get_config_var("LIBDIR") or "/nonexistent")
+        / python_deck_name,
+    ]
+    python_deck = next((p for p in candidates if p.is_file()), None)
+
+    if python_deck is None:
+        raise RuntimeError("Python runtime side deck not found")
+
+    c_source = ["code/ibmmq/ibmmqc.c"]
+
     library_dirs = []
-    include_dirs = []
+    include_dirs = ["code/ibmmq"]
     libraries = []
 
     cc_flags.extend([
-        "-W", "c,LP64,DLL",
-        "-I", mq_headers
+        "-q64",
+        "-qascii",
+        "-Wc,DLL",
+        "-qlanglvl=extc1x",
+        "-DIBMMQ_PLATFORM_ZOS=1",
+        "-I", mq_headers,
     ])
 
     ld_flags.extend([
-        "-W", "l,DYNAM=DLL,LP64",
-        mq_side_deck
+        "-W", "l,DLL,DYNAM=DLL,LP64",
+        str(python_deck),
+        mq_side_deck,
     ])
 
 # Windows
@@ -264,6 +285,99 @@ if not is_free_threaded:
 
 print(f'Building for free threaded model: {is_free_threaded}')
 
+
+from setuptools.command.build_ext import build_ext
+
+
+class ZosBuildExt(build_ext):
+    """Experimental linker workaround for setuptools 84 on z/OS."""
+
+    def build_extensions(self):
+        if platform.system() == "OS/390":
+            compiler = self.compiler
+
+            if getattr(compiler, "compiler_type", None) != "zos":
+                raise RuntimeError("Expected the setuptools z/OS compiler")
+
+            # Access the configuration used by this actual link method,
+            # rather than importing a potentially different module instance.
+            linker_globals = compiler.link.__func__.__globals__
+            linker_args = linker_globals.get("_ld_args")
+            family = compiler.zos_compiler
+
+            expected = ["-Wl,dll", "-q64"]
+
+            if not isinstance(linker_args, dict):
+                raise RuntimeError("z/OS linker configuration unavailable")
+
+            if linker_args.get(family) != expected:
+                raise RuntimeError(
+                    "Unexpected z/OS linker configuration for " + family
+                )
+
+            linker_args[family] = []
+
+            print(
+                "z/OS build_ext: disabled incompatible automatic "
+                "linker flags for", family,
+                flush=True,
+            )
+
+        # BEGIN IBMMQ ZOS TAGGED SOURCES
+        if platform.system() == "OS/390":
+            import shutil
+            import subprocess
+            from pathlib import Path
+
+            staging = Path(self.build_temp) / "ibmmq_zos_sources"
+            staging.mkdir(parents=True, exist_ok=True)
+
+            sources = (
+                Path("code/ibmmq/ibmmqc.c"),
+                Path("code/ibmmq/ibmmqc.h"),
+            )
+
+            for source in sources:
+                if not source.is_file():
+                    raise RuntimeError(
+                        f"Missing z/OS source: {source}"
+                    )
+
+                destination = staging / source.name
+                shutil.copyfile(source, destination)
+
+                subprocess.run(
+                    ["chtag", "-tc", "ISO8859-1", str(destination)],
+                    check=True,
+                )
+
+            for extension in self.extensions:
+                if extension.name != "ibmmq.ibmmqc":
+                    continue
+
+                extension.sources = [
+                    str(staging / "ibmmqc.c")
+                    if Path(source).as_posix()
+                       == "code/ibmmq/ibmmqc.c"
+                    else source
+                    for source in extension.sources
+                ]
+
+                extension.include_dirs = [
+                    str(staging),
+                    *(extension.include_dirs or []),
+                ]
+
+            print(
+                "z/OS build_ext: compiling tagged temporary "
+                "source and header copies",
+                flush=True,
+            )
+        # END IBMMQ ZOS TAGGED SOURCES
+
+        super().build_extensions()
+
+
 mqi_extension = Extension('ibmmq.ibmmqc', c_source,
                           define_macros=define_macros,
                           py_limited_api=not is_free_threaded,
@@ -273,7 +387,7 @@ mqi_extension = Extension('ibmmq.ibmmqc', c_source,
                           extra_compile_args=cc_flags,
                           libraries=libraries)
 
-setup(name='ibmmq',
+setup(cmdclass={'build_ext': ZosBuildExt}, name='ibmmq',
       version=VERSION,
       description='Python Extension for IBM MQ',
       long_description=LONG_DESCRIPTION,
