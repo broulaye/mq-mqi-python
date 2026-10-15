@@ -226,34 +226,34 @@ static int unlock(common_mutex_t *mutex) {
 /*
  * Convert an object that might be either a Python string or a byte array to a C NULL-terminated string
  */
-static char* PyBytesOrText_AsStringAndSize(PyObject *txtObj, MQLONG *outLen) {
-  if(PyBytes_Check(txtObj)) {
-    // bytes
-    if (outLen != NULL) {
-      (*outLen) = (MQLONG)PyBytes_Size(txtObj);
-    }
-    return PyBytes_AsString(txtObj);
-  } else if (PyUnicode_Check(txtObj)) {
-    PyObject *bytesObj;
-    // Using the generic codec so it conforms to the "Limited API" available at Python 3.9
-    bytesObj = PyUnicode_AsEncodedString(txtObj,"utf-8","ignore");  // PyUnicode_As[UTF8] returns NULL on binary data! Text only.
-    if (bytesObj != NULL) {
-      if (outLen != NULL) {
-        (*outLen) = (MQLONG)PyBytes_Size(bytesObj);
-      }
-      Py_DECREF(bytesObj);
-      return PyBytes_AsString(bytesObj);
-    } else {
-      return NULL;
-    }
-  } else {
-    return NULL;
-  }
-}
+// static char* PyBytesOrText_AsStringAndSize(PyObject *txtObj, MQLONG *outLen) {
+//   if(PyBytes_Check(txtObj)) {
+//     // bytes
+//     if (outLen != NULL) {
+//       (*outLen) = (MQLONG)PyBytes_Size(txtObj);
+//     }
+//     return PyBytes_AsString(txtObj);
+//   } else if (PyUnicode_Check(txtObj)) {
+//     PyObject *bytesObj;
+//     // Using the generic codec so it conforms to the "Limited API" available at Python 3.9
+//     bytesObj = PyUnicode_AsEncodedString(txtObj,"utf-8","ignore");  // PyUnicode_As[UTF8] returns NULL on binary data! Text only.
+//     if (bytesObj != NULL) {
+//       if (outLen != NULL) {
+//         (*outLen) = (MQLONG)PyBytes_Size(bytesObj);
+//       }
+//       Py_DECREF(bytesObj);
+//       return PyBytes_AsString(bytesObj);
+//     } else {
+//       return NULL;
+//     }
+//   } else {
+//     return NULL;
+//   }
+// }
 
-static char* PyBytesOrText_AsString(PyObject *txtObj) {
-  return PyBytesOrText_AsStringAndSize(txtObj, NULL);
-}
+// static char* PyBytesOrText_AsString(PyObject *txtObj) {
+//   return PyBytesOrText_AsStringAndSize(txtObj, NULL);
+// }
 
 /* For the simplest case, where we only need to return MQCC/MQRC values */
 #define MQRETURN(cc,rc)  Py_BuildValue("(ll)", (long)cc, (long)rc);
@@ -554,20 +554,69 @@ returned. Handle should be passed to subsequent calls to MQOPEN, etc.\
 ";
 
 static PyObject * ibmmqc_MQCONN(PyObject *self, PyObject *args) {
-  char *name;
-  MQHCONN hConn;
-  MQLONG compCode, reasonCode;
-  PyObject *nameObj;
+    PyObject *nameObj;
+    PyObject *encodedName = NULL;
 
-  if (!PyArg_ParseTuple(args, "O|", &nameObj)) {
-    return NULL;
-  }
-  name = PyBytesOrText_AsString(nameObj);
-  Py_BEGIN_ALLOW_THREADS
-  MQCONN(name, &hConn, &compCode, &reasonCode);
-  Py_END_ALLOW_THREADS
+    char *nameData;
+    Py_ssize_t nameLength;
 
-  return Py_BuildValue("(lll)", (long) hConn, (long) compCode, (long) reasonCode);
+    MQCHAR48 qmgrName = {0};
+    MQHCONN hConn = MQHC_UNUSABLE_HCONN;
+    MQLONG compCode, reasonCode;
+
+    if (!PyArg_ParseTuple(args, "O", &nameObj)) {
+        return NULL;
+    }
+
+    if (PyBytes_Check(nameObj)) {
+        encodedName = nameObj;
+        Py_INCREF(encodedName);
+    } else if (PyUnicode_Check(nameObj)) {
+        encodedName = PyUnicode_AsEncodedString(
+            nameObj, "utf-8", "ignore"
+        );
+    } else {
+        PyErr_SetString(
+            PyExc_TypeError,
+            "Queue manager name must be str or bytes"
+        );
+        return NULL;
+    }
+
+    if (encodedName == NULL) {
+        return NULL;
+    }
+
+    if (PyBytes_AsStringAndSize(
+            encodedName, &nameData, &nameLength) < 0) {
+        Py_DECREF(encodedName);
+        return NULL;
+    }
+
+    if (nameLength > sizeof(qmgrName)) {
+        Py_DECREF(encodedName);
+        PyErr_SetString(
+            PyExc_ValueError,
+            "Queue manager name exceeds 48 bytes"
+        );
+        return NULL;
+    }
+
+    memcpy(qmgrName, nameData, (size_t)nameLength);
+
+    /* The MQI call uses the independent 48-byte C buffer. */
+    Py_DECREF(encodedName);
+
+    Py_BEGIN_ALLOW_THREADS
+    MQCONN(qmgrName, &hConn, &compCode, &reasonCode);
+    Py_END_ALLOW_THREADS
+
+    return Py_BuildValue(
+        "(lll)",
+        (long)hConn,
+        (long)compCode,
+        (long)reasonCode
+    );
 }
 
 /*
