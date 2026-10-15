@@ -573,7 +573,7 @@ static PyObject * ibmmqc_MQCONN(PyObject *self, PyObject *args) {
         Py_INCREF(encodedName);
     } else if (PyUnicode_Check(nameObj)) {
         encodedName = PyUnicode_AsEncodedString(
-            nameObj, "utf-8", "ignore"
+            nameObj, "utf-8", "strict"
         );
     } else {
         PyErr_SetString(
@@ -601,6 +601,37 @@ static PyObject * ibmmqc_MQCONN(PyObject *self, PyObject *args) {
         );
         return NULL;
     }
+
+
+#ifdef IBMMQ_PLATFORM_ZOS
+    /*
+     * z/OS queue manager names contain at most four characters
+     * and consist of uppercase A-Z and digits 0-9.
+     *
+     * An empty name requests the configured default queue manager.
+     */
+    if (nameLength > 4) {
+        Py_DECREF(encodedName);
+        PyErr_SetString(
+            PyExc_ValueError,
+            "z/OS queue manager names cannot exceed 4 characters"
+        );
+        return NULL;
+    }
+
+    for (Py_ssize_t i = 0; i < nameLength; i++) {
+        unsigned char ch = (unsigned char)nameData[i];
+        if (!((ch >= 'A' && ch <= 'Z') ||
+              (ch >= '0' && ch <= '9'))) {
+            Py_DECREF(encodedName);
+            PyErr_SetString(
+                PyExc_ValueError,
+                "z/OS queue manager names must use A-Z or 0-9"
+            );
+            return NULL;
+        }
+    }
+#endif
 
     memcpy(qmgrName, nameData, (size_t)nameLength);
 
