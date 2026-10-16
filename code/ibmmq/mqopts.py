@@ -89,6 +89,47 @@ _ZOS_OD_CHAR_FIELDS = {
 }
 
 
+
+def _zos_message_char_value(structure, field, value):
+    """Encode verified MQMD/MQPMO fields for native z/OS MQI."""
+    expected_ids = {
+        "MD": "MD  ",
+        "PMO": "PMO ",
+    }
+
+    if field == "_StrucId":
+        expected = expected_ids[structure]
+        ascii_id = expected.encode("ascii")
+        native_id = expected.encode("cp037")
+
+        if value == ascii_id or value == expected:
+            return native_id
+        if value == native_id:
+            return value
+        raise ValueError("Unexpected MQ structure identifier")
+
+    if structure == "MD" and field == "Format":
+        if isinstance(value, str):
+            data = value.encode("cp037")
+        elif isinstance(value, bytes):
+            if not value:
+                data = b""
+            elif value == b"MQSTR   ":
+                data = value.decode("ascii").encode("cp037")
+            else:
+                # Preserve explicitly supplied native/binary bytes.
+                data = value
+        else:
+            raise TypeError("MQMD Format must be str or bytes")
+
+        if len(data) > 8:
+            raise ValueError("MQMD Format exceeds 8 bytes")
+
+        return data.ljust(8, bytes([0x40]))
+
+    return value
+
+
 class MQOpts:
     """ Base class for packing/unpacking MQI Option structures. It is
     constructed with a list defining the member/attribute name,
@@ -200,6 +241,15 @@ class MQOpts:
                 ):
                     v = _zos_od_char_value(
                         i[0], v, _ZOS_OD_CHAR_FIELDS[i[0]]
+                    )
+
+                if (
+                    __import__("sys").platform == "zos"
+                    and type(self).__name__ in ("MD", "PMO")
+                    and i[0] in ("_StrucId", "Format")
+                ):
+                    v = _zos_message_char_value(
+                        type(self).__name__, i[0], v
                     )
 
                 args.append(ensure_strings_are_bytes(v))
