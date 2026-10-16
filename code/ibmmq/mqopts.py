@@ -95,6 +95,7 @@ def _zos_message_char_value(structure, field, value):
     expected_ids = {
         "MD": "MD  ",
         "PMO": "PMO ",
+        "GMO": "GMO ",
     }
 
     if field == "_StrucId":
@@ -245,7 +246,7 @@ class MQOpts:
 
                 if (
                     __import__("sys").platform == "zos"
-                    and type(self).__name__ in ("MD", "PMO")
+                    and type(self).__name__ in ("MD", "PMO", "GMO")
                     and i[0] in ("_StrucId", "Format")
                 ):
                     v = _zos_message_char_value(
