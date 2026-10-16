@@ -75,7 +75,7 @@ def _zos_od_char_value(field, value, width):
     if len(data) > width:
         raise ValueError(f"{field} exceeds {width} bytes")
 
-    return data.ljust(width, b"\\x40")
+    return data.ljust(width, b"\x40")
 
 
 _ZOS_OD_CHAR_FIELDS = {
