@@ -90,6 +90,18 @@ _ZOS_OD_CHAR_FIELDS = {
 
 
 
+
+_ZOS_MD_CHAR_FIELDS = {
+    "ReplyToQ": 48,
+    "ReplyToQMgr": 48,
+    "UserIdentifier": 12,
+    "ApplIdentityData": 32,
+    "PutApplName": 28,
+    "PutDate": 8,
+    "PutTime": 8,
+    "ApplOriginData": 4,
+}
+
 def _zos_message_char_value(structure, field, value):
     """Encode verified MQMD/MQPMO fields for native z/OS MQI."""
     expected_ids = {
@@ -127,6 +139,22 @@ def _zos_message_char_value(structure, field, value):
             raise ValueError("MQMD Format exceeds 8 bytes")
 
         return data.ljust(8, bytes([0x40]))
+
+
+    if structure == "MD" and field in _ZOS_MD_CHAR_FIELDS:
+        width = _ZOS_MD_CHAR_FIELDS[field]
+
+        if isinstance(value, str):
+            data = value.encode("cp037")
+        elif isinstance(value, bytes):
+            data = value
+        else:
+            raise TypeError(f"{field} must be str or bytes")
+
+        if len(data) > width:
+            raise ValueError(f"{field} exceeds {width} bytes")
+
+        return data.ljust(width, bytes([0x40]))
 
     return value
 
@@ -247,7 +275,13 @@ class MQOpts:
                 if (
                     __import__("sys").platform == "zos"
                     and type(self).__name__ in ("MD", "PMO", "GMO")
-                    and i[0] in ("_StrucId", "Format")
+                    and (
+                        i[0] in ("_StrucId", "Format")
+                        or (
+                            type(self).__name__ == "MD"
+                            and i[0] in _ZOS_MD_CHAR_FIELDS
+                        )
+                    )
                 ):
                     v = _zos_message_char_value(
                         type(self).__name__, i[0], v
