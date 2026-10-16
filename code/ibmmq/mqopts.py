@@ -52,6 +52,43 @@ _binary_fields = ["AccountingToken",
 # builds a format string usable by the struct package to translate to
 # 'C' structures.
 
+
+def _zos_od_char_value(field, value, width):
+    """Encode MQOD character fields for native z/OS MQI.
+
+    Python str values are converted to CP037.
+    Explicit bytes values are treated as already native-encoded,
+    except for known ASCII defaults supplied by the library.
+    """
+    if isinstance(value, str):
+        data = value.encode("cp037")
+    elif isinstance(value, bytes):
+        if field == "_StrucId" and value == b"OD  ":
+            data = "OD  ".encode("cp037")
+        elif field == "DynamicQName" and value == b"AMQ.*":
+            data = "AMQ.*".encode("cp037")
+        else:
+            data = value
+    else:
+        raise TypeError(f"{field} must be str or bytes")
+
+    if len(data) > width:
+        raise ValueError(f"{field} exceeds {width} bytes")
+
+    return data.ljust(width, b"\\x40")
+
+
+_ZOS_OD_CHAR_FIELDS = {
+    "_StrucId": 4,
+    "ObjectName": 48,
+    "ObjectQMgrName": 48,
+    "DynamicQName": 48,
+    "AlternateUserId": 12,
+    "ResolvedQName": 48,
+    "ResolvedQMgrName": 48,
+}
+
+
 class MQOpts:
     """ Base class for packing/unpacking MQI Option structures. It is
     constructed with a list defining the member/attribute name,
@@ -155,6 +192,15 @@ class MQOpts:
                         raise TypeError(err)
                     if i[2] == 'P':
                         v = 0
+
+                if (
+                    __import__("sys").platform == "zos"
+                    and type(self).__name__ == "OD"
+                    and i[0] in _ZOS_OD_CHAR_FIELDS
+                ):
+                    v = _zos_od_char_value(
+                        i[0], v, _ZOS_OD_CHAR_FIELDS[i[0]]
+                    )
 
                 args.append(ensure_strings_are_bytes(v))
 
